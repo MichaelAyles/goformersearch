@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/goformersearch-logo.png" alt="goformersearch logo" width="400">
+</p>
+
 # goformersearch
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/MichaelAyles/goformersearch.svg)](https://pkg.go.dev/github.com/MichaelAyles/goformersearch)
