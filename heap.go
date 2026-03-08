@@ -33,12 +33,6 @@ func (h *resultHeap) push(id uint64, similarity float32) {
 	h.siftDown(0)
 }
 
-// worst returns the similarity of the worst result in the heap.
-// The heap must not be empty.
-func (h *resultHeap) worst() float32 {
-	return h.results[0].Similarity
-}
-
 // sorted returns the heap contents sorted by decreasing similarity.
 func (h *resultHeap) sorted() []Result {
 	out := make([]Result, len(h.results))
