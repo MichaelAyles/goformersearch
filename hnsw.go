@@ -256,7 +256,12 @@ func (h *HNSWIndex) searchLayer(query []float32, ep uint32, ef int, level int) [
 	return results
 }
 
-// selectNeighbours picks the best m neighbours from candidates (simple heuristic: closest by similarity).
+// selectNeighbours implements the diversity-aware heuristic from the HNSW
+// paper (Algorithm 4). Instead of simply taking the m closest candidates,
+// it iteratively selects the closest candidate that is nearer to the query
+// than to any already-selected neighbour. This prevents clusters of very
+// similar vectors from dominating the connection list and ensures better
+// graph navigability, especially in high dimensions.
 func (h *HNSWIndex) selectNeighbours(candidates []candidate, m int) []uint32 {
 	if len(candidates) <= m {
 		out := make([]uint32, len(candidates))
@@ -265,37 +270,79 @@ func (h *HNSWIndex) selectNeighbours(candidates []candidate, m int) []uint32 {
 		}
 		return out
 	}
-	out := make([]uint32, m)
-	for i := 0; i < m; i++ {
-		out[i] = candidates[i].index
+
+	// Work on a copy sorted by decreasing similarity (closest first).
+	work := make([]candidate, len(candidates))
+	copy(work, candidates)
+	sort.Slice(work, func(i, j int) bool {
+		return work[i].dist > work[j].dist
+	})
+
+	selected := make([]uint32, 0, m)
+	for len(work) > 0 && len(selected) < m {
+		// Take the closest remaining candidate.
+		best := work[0]
+		work = work[1:]
+
+		// Check diversity: is this candidate closer to the query than
+		// to any already-selected neighbour?
+		if h.isDiverse(best, selected) {
+			selected = append(selected, best.index)
+		}
 	}
-	return out
+
+	// If the diversity heuristic didn't fill all m slots, fill from
+	// remaining candidates in order of similarity (keepPrunedConnections).
+	if len(selected) < m {
+		// Re-sort remaining + discarded by similarity.
+		used := make(map[uint32]bool, len(selected))
+		for _, idx := range selected {
+			used[idx] = true
+		}
+		for _, c := range candidates {
+			if len(selected) >= m {
+				break
+			}
+			if !used[c.index] {
+				selected = append(selected, c.index)
+				used[c.index] = true
+			}
+		}
+	}
+
+	return selected
 }
 
-// pruneConnections trims a node's friend list on a given layer to at most m,
-// keeping the closest neighbours.
+// isDiverse returns true if the candidate is more similar to the query
+// (candidate.dist) than to any already-selected neighbour.
+func (h *HNSWIndex) isDiverse(c candidate, selected []uint32) bool {
+	for _, sIdx := range selected {
+		if DotProduct(h.nodes[c.index].vec, h.nodes[sIdx].vec) > c.dist {
+			return false
+		}
+	}
+	return true
+}
+
+// pruneConnections trims a node's friend list on a given layer to at most m
+// using the diversity-aware heuristic.
 func (h *HNSWIndex) pruneConnections(nodeIdx uint32, level int, m int) {
 	friends := h.nodes[nodeIdx].friends[level]
 	if len(friends) <= m {
 		return
 	}
 	vec := h.nodes[nodeIdx].vec
-	type scored struct {
-		idx  uint32
-		dist float32
-	}
-	scored_ := make([]scored, len(friends))
+
+	// Build candidates with similarity to the node.
+	cands := make([]candidate, len(friends))
 	for i, fIdx := range friends {
-		scored_[i] = scored{idx: fIdx, dist: DotProduct(vec, h.nodes[fIdx].vec)}
+		cands[i] = candidate{index: fIdx, dist: DotProduct(vec, h.nodes[fIdx].vec)}
 	}
-	sort.Slice(scored_, func(i, j int) bool {
-		return scored_[i].dist > scored_[j].dist
+	sort.Slice(cands, func(i, j int) bool {
+		return cands[i].dist > cands[j].dist
 	})
-	pruned := make([]uint32, m)
-	for i := 0; i < m; i++ {
-		pruned[i] = scored_[i].idx
-	}
-	h.nodes[nodeIdx].friends[level] = pruned
+
+	h.nodes[nodeIdx].friends[level] = h.selectNeighbours(cands, m)
 }
 
 func (h *HNSWIndex) mForLevel(level int) int {
