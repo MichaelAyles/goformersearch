@@ -30,3 +30,12 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Claude / docs
+CLAUDE.md
+plan.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
