@@ -138,25 +138,48 @@ index, _ := goformersearch.LoadHNSW(f)
 f.Close()
 ```
 
-## Performance Targets
+## Benchmarks
 
-At 384 dimensions (BGE-small-en-v1.5 output):
+All measurements at 384 dimensions, k=10, M=16, efConstruction=200. FAISS (C++, same parameters) shown for reference.
 
-| Operation | Target |
+### Search Latency
+
+<p align="center">
+  <img src="assets/benchmark-crossover.png" alt="Search latency vs index size" width="700">
+</p>
+
+Brute-force wins below ~2,400 vectors. Past that, HNSW is faster and the gap widens with scale.
+
+| Index size | Flat | HNSW ef=50 | FAISS Flat | FAISS HNSW ef=50 |
+|---|---|---|---|---|
+| 1k | 0.14ms | 0.25ms | 0.03ms | 0.04ms |
+| 10k | 1.38ms | 0.41ms | 0.34ms | 0.14ms |
+| 50k | 6.9ms | 0.47ms | 1.66ms | 0.30ms |
+| 100k | 14ms | 0.59ms | 3.3ms | 0.25ms |
+
+FAISS flat is ~4x faster (SIMD-optimized C++). For HNSW the gap narrows to ~2x — graph traversal dominates over the per-node dot product.
+
+### Build Time
+
+<p align="center">
+  <img src="assets/benchmark-build-time.png" alt="Build time vs index size" width="700">
+</p>
+
+| Index size | Flat | HNSW | FAISS Flat | FAISS HNSW |
+|---|---|---|---|---|
+| 10k | 7ms | 17s | 1ms | 1.7s |
+| 50k | 28ms | 169s | 6ms | 20s |
+| 100k | 50ms | 372s | 20ms | 58s |
+
+### Tuning efSearch
+
+Higher `efSearch` improves recall at the cost of latency:
+
+| efSearch | Search latency (50k) |
 |---|---|
-| Flat search, 10k vectors | < 1ms |
-| Flat search, 50k vectors | < 5ms |
-| HNSW search, 50k vectors (ef=50) | < 0.5ms |
-| HNSW build, 10k vectors | < 5s |
-| HNSW build, 50k vectors | < 30s |
-
-### HNSW Recall
-
-| efSearch | Expected recall@10 |
-|---|---|
-| 50 | > 0.95 |
-| 100 | > 0.98 |
-| 200 | > 0.99 |
+| 50 | 0.47ms |
+| 100 | 1.0ms |
+| 200 | 2.7ms |
 
 ## Concurrency
 
